@@ -11,7 +11,7 @@ data/*.db
 data/*.json
 data/*.jsonl
 data/*.md
-datasets/*.jsonl
+
 
 # MCP Server
 mcp_server/__pycache__/
