@@ -46,6 +46,14 @@ def main() -> None:
     data_dir = root / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
     prod_db = str(data_dir / "prod_openflights.db")
+    synth_db_path = data_dir / "synthetic_openflights.db"
+    
+    # Check if synthetic DB already exists (skip regeneration)
+    FORCE_REGEN = os.environ.get("FORCE_REGEN", "").lower() in ("1", "true", "yes")
+    if synth_db_path.exists() and not FORCE_REGEN:
+        print(f"✓ Synthetic DB already exists at {synth_db_path}")
+        print("  Set FORCE_REGEN=1 to regenerate")
+        return
 
     with duckdb.connect(prod_db, read_only=True) as con_ro:
         schema_df = con_ro.sql("DESCRIBE;").df()
@@ -74,7 +82,7 @@ def main() -> None:
     api_key = os.getenv("FIREWORKS_API_KEY")
     if not api_key:
         raise RuntimeError("FIREWORKS_API_KEY is not set")
-    llm = LLM(model="accounts/fireworks/models/llama-v3p1-8b-instruct", deployment_type="serverless", api_key=api_key)
+    llm = LLM(model="accounts/fireworks/models/deepseek-v3p1-terminus", deployment_type="serverless", api_key=api_key)
 
     all_synthetic: Dict[str, List[Dict[str, Any]]] = {t: [] for t in table_names}
     chunk_row_counts = {t: ROWS_PER_API_CALL for t in table_names}

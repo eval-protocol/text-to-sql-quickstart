@@ -1,4 +1,5 @@
 import json
+import os
 import pathlib
 
 import duckdb
@@ -11,6 +12,15 @@ def main() -> None:
     synth_db = str(data_dir / "synthetic_openflights.db")
     queries_path = data_dir / "generated_queries.json"
     out_path = data_dir / "ground_truth_results.jsonl"
+    
+    # Check if ground truth already exists (skip)
+    FORCE_REGEN = os.environ.get("FORCE_REGEN", "").lower() in ("1", "true", "yes")
+    if out_path.exists() and not FORCE_REGEN:
+        # Check if file has content
+        if out_path.stat().st_size > 0:
+            print(f"✓ Ground truth already exists at {out_path}")
+            print("  Set FORCE_REGEN=1 to regenerate")
+            return
 
     with open(queries_path, "r") as f:
         queries = json.load(f).get("queries", [])

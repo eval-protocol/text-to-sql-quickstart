@@ -48,10 +48,19 @@ def main() -> None:
     data_dir = root / "data"
     synth_db = str(data_dir / "synthetic_openflights.db")
     queries_path = data_dir / "generated_queries.json"
+    augment_marker = data_dir / ".augment_done"
+    
+    # Check if augmentation already done (skip)
+    FORCE_REGEN = os.environ.get("FORCE_REGEN", "").lower() in ("1", "true", "yes")
+    if augment_marker.exists() and not FORCE_REGEN:
+        print(f"✓ Augmentation already done (marker: {augment_marker})")
+        print("  Set FORCE_REGEN=1 to re-run")
+        return
+    
     api_key = os.getenv("FIREWORKS_API_KEY")
     if not api_key:
         raise RuntimeError("FIREWORKS_API_KEY is not set")
-    llm = LLM(model="accounts/fireworks/models/llama-v3p1-8b-instruct", deployment_type="serverless", api_key=api_key)
+    llm = LLM(model="accounts/fireworks/models/deepseek-v3p1-terminus", deployment_type="serverless", api_key=api_key)
 
     with open(queries_path, "r") as f:
         queries = json.load(f).get("queries", [])
@@ -186,6 +195,8 @@ Rules:
             if after != before:
                 print(f"Dedup: {t} {before}->{after}")
 
+    # Mark augmentation as done
+    augment_marker.write_text("done")
     print("Augmentation complete.")
 
 
