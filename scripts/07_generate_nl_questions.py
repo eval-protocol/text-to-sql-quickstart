@@ -1,5 +1,4 @@
 import os
-import json
 import time
 import random
 import pathlib
@@ -19,14 +18,14 @@ def main() -> None:
     out_train = root / "datasets" / "final_rft_sql_train_data.jsonl"
     out_test = root / "datasets" / "final_rft_sql_test_data.jsonl"
     (root / "datasets").mkdir(parents=True, exist_ok=True)
-    
+
     # Check if final datasets already exist (skip)
     FORCE_REGEN = os.environ.get("FORCE_REGEN", "").lower() in ("1", "true", "yes")
     if out_train.exists() and out_test.exists() and not FORCE_REGEN:
         train_size = sum(1 for _ in open(out_train))
         test_size = sum(1 for _ in open(out_test))
         if train_size > 0 and test_size > 0:
-            print(f"✓ Final datasets already exist:")
+            print("✓ Final datasets already exist:")
             print(f"    Train: {out_train} ({train_size} rows)")
             print(f"    Test:  {out_test} ({test_size} rows)")
             print("  Set FORCE_REGEN=1 to regenerate")
@@ -35,7 +34,11 @@ def main() -> None:
     api_key = os.getenv("FIREWORKS_API_KEY")
     if not api_key:
         raise RuntimeError("FIREWORKS_API_KEY is not set")
-    llm = LLM(model="accounts/fireworks/models/deepseek-v3p1-terminus", deployment_type="serverless", api_key=api_key)
+    llm = LLM(
+        model="accounts/fireworks/models/deepseek-v3p1-terminus",
+        deployment_type="serverless",
+        api_key=api_key,
+    )
 
     # Load schema for prompt (from synthetic DB)
     synth_db = str(data_dir / "synthetic_openflights.db")
@@ -68,13 +71,15 @@ Return only the question text.
     with jsonlines.open(gt_path) as reader:
         for obj in reader:
             pairs.append(obj)
-    
+
     # Limit dataset size for faster generation
     MAX_NL_QUERIES = int(os.environ.get("MAX_NL_QUERIES", "200"))
     if len(pairs) > MAX_NL_QUERIES:
         random.shuffle(pairs)  # Shuffle to get diverse sample
         pairs = pairs[:MAX_NL_QUERIES]
-        print(f"Limited to {MAX_NL_QUERIES} query-result pairs (set MAX_NL_QUERIES to change)")
+        print(
+            f"Limited to {MAX_NL_QUERIES} query-result pairs (set MAX_NL_QUERIES to change)"
+        )
     else:
         print(f"Loaded {len(pairs)} query-result pairs.")
 
@@ -84,7 +89,9 @@ Return only the question text.
         query = pair["query"]
         ground_truth = pair["result"]
         user_prompt = nl_template.format(schema=schema_md, query=query)
-        resp = llm.chat.completions.create(messages=[{"role": "user", "content": user_prompt}], temperature=0.5)
+        resp = llm.chat.completions.create(
+            messages=[{"role": "user", "content": user_prompt}], temperature=0.5
+        )
         nl = (resp.choices[0].message.content or "").strip()
         if not nl:
             continue
@@ -99,7 +106,7 @@ Return only the question text.
             }
         )
         if (i + 1) % 10 == 0 or i == 0:
-            print(f"[{i+1}/{total}] Generated {len(final_rows)} NL questions...")
+            print(f"[{i + 1}/{total}] Generated {len(final_rows)} NL questions...")
         time.sleep(0.3)
 
     print(f"Generated {len(final_rows)} total examples; filtering empties.")

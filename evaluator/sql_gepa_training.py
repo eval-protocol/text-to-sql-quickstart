@@ -177,8 +177,7 @@ def _load_eval_rows(max_rows: int | None = None, include_test: bool = False) -> 
             print(f"Loaded {filename}: {len(rows)} rows total")
     
     if not rows:
-        print("Warning: No dataset files found!")
-        print("Please run 'make all-data' to generate the dataset first.")
+        print("Warning: No dataset files found in datasets/")
     
     return rows
 
@@ -556,55 +555,36 @@ def test_sql_gepa(row: EvaluationRow) -> EvaluationRow:
 # GEPA Training Entry Point
 # ============================================================================
 if __name__ == "__main__":
-    import asyncio
+    print("Text-to-SQL GEPA Prompt Optimization")
+    print("=" * 40)
     
-    print("=" * 80)
-    print("TEXT-TO-SQL GEPA PROMPT OPTIMIZATION")
-    print("=" * 80)
-    
-    # Check MCP server
+    # MCP server will be auto-started by GEPATrainer
     mcp_url = os.getenv("MCP_SERVER_URL", "http://127.0.0.1:8080")
-    print(f"\nMCP Server URL: {mcp_url}")
-    print("Make sure MCP server is running before starting training!")
+    print(f"MCP Server: {mcp_url}")
     
-    # Initialize trainer
-    # Train data (183 rows) is split into train/val
-    # Test data (60 rows) is held out separately in eval_baseline.py
+    # Initialize trainer (train data split into 70% train, 30% val)
     trainer = GEPATrainer(
         test_sql_gepa,
-        train_ratio=0.7,   # 70% for training (~128 examples)
-        val_ratio=0.3,     # 30% for validation (~55 examples)
-        # test_ratio = 0% (test is held out in separate file)
-        input_field="problem",   # Maps to user question
-        output_field="answer",   # Maps to SQL query
-        module_type="chain_of_thought",  # Use CoT for step-by-step SQL reasoning
+        train_ratio=0.7,
+        val_ratio=0.3,
+        input_field="problem",
+        output_field="answer",
+        module_type="chain_of_thought",
     )
     
     # Use Fireworks model for reflection
     reflection_lm = build_reflection_lm("fireworks_ai/accounts/fireworks/models/deepseek-v3p1-terminus")
 
-    print("\nStarting GEPA training...")
+    print("Starting GEPA training...")
     optimized_program = trainer.train(
-        num_threads=4,     # Reduced to avoid API overload
+        num_threads=4,
         track_stats=True,
-        reflection_minibatch_size=50,  # Sample 50 examples per iteration for better feedback
+        reflection_minibatch_size=50,
         reflection_lm=reflection_lm,
-        # Use explicit budget for more iterations
         auto=None,
-        max_metric_calls=3000,  # Higher budget for more exploration
+        max_metric_calls=3000,
     )
-
-    # Evaluate with DSPy
-    print("\n=== DSPy Evaluation ===")
-    print(trainer.evaluate(optimized_program))
     
-    # Get optimized prompt
-    print("\n=== Optimized System Prompt ===")
-    optimized_prompt = trainer.get_optimized_system_prompt(optimized_program)
-    print(optimized_prompt)
-    
-    # Optional: Run full EP evaluation
-    # print("\n=== EP Evaluation (with tracing) ===")
-    # results = trainer.run_ep_evaluation(optimized_program)
-    # print(f"Final EP Score: {results['score']:.3f}")
+    print("\n=== Optimized Prompt ===")
+    print(trainer.get_optimized_system_prompt(optimized_program))
 

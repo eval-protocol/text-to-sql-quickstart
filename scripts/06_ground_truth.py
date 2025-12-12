@@ -12,7 +12,7 @@ def main() -> None:
     synth_db = str(data_dir / "synthetic_openflights.db")
     queries_path = data_dir / "generated_queries.json"
     out_path = data_dir / "ground_truth_results.jsonl"
-    
+
     # Check if ground truth already exists (skip)
     FORCE_REGEN = os.environ.get("FORCE_REGEN", "").lower() in ("1", "true", "yes")
     if out_path.exists() and not FORCE_REGEN:
@@ -48,7 +48,9 @@ def main() -> None:
                     kept += 1
                 except Exception:
                     failed += 1
-    print(f"Ground truth saved: {out_path} | kept={kept}, failed={failed}, oversized={oversized}")
+    print(
+        f"Ground truth saved: {out_path} | kept={kept}, failed={failed}, oversized={oversized}"
+    )
 
 
 if __name__ == "__main__":

@@ -23,7 +23,21 @@ def extract_tables(sql: str) -> Set[str]:
     tables: Set[str] = set()
     for p in patterns:
         tables.update(re.findall(p, sql, flags=re.IGNORECASE))
-    keywords = {"select", "where", "group", "order", "having", "limit", "as", "on", "and", "or", "not", "in", "exists"}
+    keywords = {
+        "select",
+        "where",
+        "group",
+        "order",
+        "having",
+        "limit",
+        "as",
+        "on",
+        "and",
+        "or",
+        "not",
+        "in",
+        "exists",
+    }
     return {t for t in tables if t.lower() not in keywords}
 
 
@@ -49,18 +63,22 @@ def main() -> None:
     synth_db = str(data_dir / "synthetic_openflights.db")
     queries_path = data_dir / "generated_queries.json"
     augment_marker = data_dir / ".augment_done"
-    
+
     # Check if augmentation already done (skip)
     FORCE_REGEN = os.environ.get("FORCE_REGEN", "").lower() in ("1", "true", "yes")
     if augment_marker.exists() and not FORCE_REGEN:
         print(f"✓ Augmentation already done (marker: {augment_marker})")
         print("  Set FORCE_REGEN=1 to re-run")
         return
-    
+
     api_key = os.getenv("FIREWORKS_API_KEY")
     if not api_key:
         raise RuntimeError("FIREWORKS_API_KEY is not set")
-    llm = LLM(model="accounts/fireworks/models/deepseek-v3p1-terminus", deployment_type="serverless", api_key=api_key)
+    llm = LLM(
+        model="accounts/fireworks/models/deepseek-v3p1-terminus",
+        deployment_type="serverless",
+        api_key=api_key,
+    )
 
     with open(queries_path, "r") as f:
         queries = json.load(f).get("queries", [])
@@ -84,7 +102,10 @@ def main() -> None:
             types = table_types(t)
             if not cols:
                 continue
-            row_fields = {c: (Optional[map_sql_type_to_python(ty)], None) for c, ty in zip(cols, types)}
+            row_fields = {
+                c: (Optional[map_sql_type_to_python(ty)], None)
+                for c, ty in zip(cols, types)
+            }
             row_model = create_model(f"{t.capitalize()}Row", **row_fields)
             fields[t] = (List[row_model], [])
         if not fields:
@@ -111,7 +132,9 @@ def main() -> None:
             iteration += 1
             cur_zero = [i for i, q in enumerate(queries) if count_rows(con, q) == 0]
             pct = (len(cur_zero) / total * 100) if total else 0.0
-            print(f"[Iter {iteration}] zero-result: {len(cur_zero)}/{total} ({pct:.1f}%)")
+            print(
+                f"[Iter {iteration}] zero-result: {len(cur_zero)}/{total} ({pct:.1f}%)"
+            )
             if pct <= MAX_ZERO_PCT or not cur_zero:
                 break
             pending = [i for i in cur_zero if i not in processed][:BATCH]
@@ -156,7 +179,10 @@ Rules:
                         messages=[{"role": "user", "content": user_prompt}],
                         response_format={
                             "type": "json_schema",
-                            "json_schema": {"name": "RowsPayload", "schema": rows_schema},
+                            "json_schema": {
+                                "name": "RowsPayload",
+                                "schema": rows_schema,
+                            },
                         },
                         temperature=0.5,
                     )
@@ -179,7 +205,9 @@ Rules:
                     df = df[cols]
                     try:
                         con.register("new_rows_df", df)
-                        con.execute(f'INSERT INTO "{t}" SELECT * FROM new_rows_df EXCEPT SELECT * FROM "{t}"')
+                        con.execute(
+                            f'INSERT INTO "{t}" SELECT * FROM new_rows_df EXCEPT SELECT * FROM "{t}"'
+                        )
                         con.unregister("new_rows_df")
                         inserted += len(df)
                     except Exception as e:
@@ -190,7 +218,9 @@ Rules:
         tables = [r[0] for r in con.sql("SHOW TABLES;").fetchall()]
         for t in tables:
             before = con.sql(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0]
-            con.execute(f'CREATE OR REPLACE TABLE "{t}" AS SELECT DISTINCT * FROM "{t}"')
+            con.execute(
+                f'CREATE OR REPLACE TABLE "{t}" AS SELECT DISTINCT * FROM "{t}"'
+            )
             after = con.sql(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0]
             if after != before:
                 print(f"Dedup: {t} {before}->{after}")
