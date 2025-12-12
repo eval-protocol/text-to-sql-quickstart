@@ -6,7 +6,6 @@ pydantic
 python-dotenv
 jsonlines
 requests
-fireworks-ai
 tqdm
 pytest
 mcp

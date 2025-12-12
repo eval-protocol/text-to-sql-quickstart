@@ -30,3 +30,5 @@ app = Starlette(routes=[Mount("/mcp", app=handler)], lifespan=lifespan)
 if __name__ == "__main__":
     print(f"MCP endpoint → http://0.0.0.0:{PORT}/mcp")
     uvicorn.run(app, host="0.0.0.0", port=PORT)
+
+

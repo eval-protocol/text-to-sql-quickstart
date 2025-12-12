@@ -40,6 +40,42 @@ gen-nl:
 test:
 	pytest -q
 
+# ============================================================
+# Verification targets - validate synthetic data pipeline
+# ============================================================
+
+.PHONY: verify
+verify: verify-db verify-queries verify-gt verify-dataset verify-nl-sql
+	@echo "✅ All verifications complete!"
+
+.PHONY: verify-db
+verify-db:
+	$(PYTHON) scripts/verify_database.py
+
+.PHONY: verify-queries
+verify-queries:
+	$(PYTHON) scripts/verify_queries.py
+
+.PHONY: verify-gt
+verify-gt:
+	$(PYTHON) scripts/verify_ground_truth.py
+
+.PHONY: verify-dataset
+verify-dataset:
+	$(PYTHON) scripts/verify_dataset.py
+
+.PHONY: verify-nl-sql
+verify-nl-sql:
+	$(PYTHON) scripts/verify_nl_sql_match.py
+
+.PHONY: verify-all
+verify-all:
+	$(PYTHON) scripts/verify_all.py
+
+# ============================================================
+# Docker targets
+# ============================================================
+
 .PHONY: mcp-build
 mcp-build:
 	docker build -t text-to-sql-mcp:latest .

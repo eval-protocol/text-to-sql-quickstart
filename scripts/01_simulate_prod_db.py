@@ -32,7 +32,16 @@ def main() -> None:
             "type",
             "source",
         ],
-        "airlines": ["airline_id", "name", "alias", "iata", "icao", "callsign", "country", "active"],
+        "airlines": [
+            "airline_id",
+            "name",
+            "alias",
+            "iata",
+            "icao",
+            "callsign",
+            "country",
+            "active",
+        ],
         "routes": [
             "airline",
             "airline_id",
@@ -56,7 +65,9 @@ def main() -> None:
             if not path.exists():
                 urllib.request.urlretrieve(url, path)
                 print(f"Downloaded: {path}")
-            df = pd.read_csv(path, header=None, names=COLUMN_NAMES[name], na_values=["\\N"])
+            df = pd.read_csv(  # noqa: F841
+                path, header=None, names=COLUMN_NAMES[name], na_values=["\\N"]
+            )
             con.execute(f'CREATE OR REPLACE TABLE "{name}" AS SELECT * FROM df')
         print(f"\n'Production' database simulated at: {PROD_DB_PATH}")
         print("Tables created:", con.sql("SHOW TABLES;").fetchall())

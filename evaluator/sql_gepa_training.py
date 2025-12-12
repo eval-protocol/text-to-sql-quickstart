@@ -1,3 +1,16 @@
+"""
+GEPA Prompt Optimization for Text-to-SQL
+
+This script adapts the SQL RFT evaluator for GEPA prompt optimization.
+It takes the existing @evaluation_test and optimizes the system prompt
+to improve SQL generation quality.
+
+Usage:
+    cd text-to-sql-quickstart
+    export MCP_SERVER_URL=http://127.0.0.1:8080  # or your MCP server URL
+    python evaluator/sql_gepa_training.py
+"""
+
 import os
 import json
 import math
@@ -5,12 +18,31 @@ from typing import Any, Dict, List
 from pathlib import Path
 
 import requests
-from eval_protocol.models import EvaluateResult, EvaluationRow, MetricResult
+from eval_protocol.models import EvaluateResult, EvaluationRow, Message, MetricResult
 from eval_protocol.pytest import evaluation_test
 from eval_protocol.pytest.default_single_turn_rollout_process import SingleTurnRolloutProcessor
+from eval_protocol.training import GEPATrainer
+from eval_protocol.training.gepa_utils import build_reflection_lm
 
 
-MCP_SERVER_URL = "https://mcp-sql-rft-server-644257448872.us-central1.run.app"
+# ============================================================================
+# System prompt - this is what GEPA will optimize
+# ============================================================================
+SYSTEM_PROMPT = """You are an expert SQL data analyst.
+Write a single DuckDB SQL query to answer the user's question based on the schema.
+Return only the SQL text, no explanations, and avoid duplicates via GROUP BY when needed.
+
+Schema:
+|    | column_name    | column_type   | null   | key   | default   | extra   |
+|---:|:---------------|:--------------|:-------|:------|:----------|:--------|
+|  0 | airline_id     | INTEGER       | YES    | NULL  | NULL      | NULL    |
+|  1 | name           | VARCHAR       | YES    | NULL  | NULL      | NULL    |
+|  2 | alias          | VARCHAR       | YES    | NULL  | NULL      | NULL    |
+|  3 | iata           | VARCHAR       | YES    | NULL  | NULL      | NULL    |
+|  4 | icao           | VARCHAR       | YES    | NULL  | NULL      | NULL    |
+|  5 | callsign       | VARCHAR       | YES    | NULL  | NULL      | NULL    |
+|  6 | country        | VARCHAR       | YES    | NULL  | NULL      | NULL    |
+|  7 | active         | VARCHAR       | YES    | NULL  | NULL      | NULL    |"""
 
 
 # ============================================================================
@@ -52,8 +84,10 @@ def _parse_duckdb_ascii(table: str) -> List[Dict[str, Any]]:
 
 def execute_sql_via_mcp(sql_query: str) -> Dict[str, Any]:
     """Execute SQL via MCP server and return result or error."""
-    mcp_url = MCP_SERVER_URL
-
+    mcp_url = os.getenv("MCP_SERVER_URL")
+    if not mcp_url:
+        return {"error": "MCP_SERVER_URL not set", "result": None}
+    
     if not sql_query.strip():
         return {"error": "Empty SQL query", "result": None}
     
@@ -106,6 +140,82 @@ def compare_results(pred: List[Dict[str, Any]], ground_truth: List[Dict[str, Any
         }
     except Exception as e:
         return {"match": False, "reason": f"Comparison error: {e}"}
+
+
+# ============================================================================
+# Dataset Loading
+# ============================================================================
+def _load_eval_rows(max_rows: int | None = None, include_test: bool = False) -> List[EvaluationRow]:
+    """Load evaluation rows for GEPA training.
+    
+    Args:
+        max_rows: Maximum number of rows to load (None for all)
+        include_test: If False (default), only load train data. 
+                     Test data (60 rows) is held out for final evaluation.
+    """
+    root = Path(__file__).resolve().parents[1]
+    rows: List[EvaluationRow] = []
+    
+    # By default, only load TRAIN data for GEPA
+    # Test data is held out and used by eval_baseline.py for fair comparison
+    filenames = ["final_rft_sql_train_data.jsonl"]
+    if include_test:
+        filenames.append("final_rft_sql_test_data.jsonl")
+    
+    for filename in filenames:
+        ds_path = root / "datasets" / filename
+        if ds_path.exists():
+            with open(ds_path, "r") as f:
+                for line in f:
+                    if max_rows is not None and len(rows) >= max_rows:
+                        break
+                    obj = json.loads(line)
+                    messages = []
+                    for m in obj.get("messages", []):
+                        messages.append(Message(role=m.get("role", ""), content=m.get("content", "")))
+                    rows.append(EvaluationRow(messages=messages, ground_truth=obj.get("ground_truth")))
+            print(f"Loaded {filename}: {len(rows)} rows total")
+    
+    if not rows:
+        print("Warning: No dataset files found in datasets/")
+    
+    return rows
+
+
+
+
+def sql_dataset_adapter(rows: List[Dict[str, Any]]) -> List[EvaluationRow]:
+    """Adapter for converting raw dataset rows to EvaluationRows."""
+    converted: List[EvaluationRow] = []
+    for r in rows:
+        messages = []
+        for m in r.get("messages", []):
+            messages.append(Message(role=m.get("role", ""), content=m.get("content", "")))
+        converted.append(EvaluationRow(messages=messages, ground_truth=r.get("ground_truth")))
+    return converted
+
+
+# ============================================================================
+# Helper functions
+# ============================================================================
+def _coerce_messages_for_eval(row_messages: List[Any]) -> List[Dict[str, str]]:
+    """Convert EvaluationRow.messages to simple {role, content} dicts."""
+    out: List[Dict[str, str]] = []
+    for m in row_messages:
+        try:
+            role = getattr(m, "role", None) if not isinstance(m, dict) else m.get("role")
+            content = getattr(m, "content", None) if not isinstance(m, dict) else m.get("content")
+            if isinstance(content, list) and content and isinstance(content[0], dict):
+                text = content[0].get("text", "")
+            else:
+                text = content if isinstance(content, str) else ""
+            # Remove thinking content if present
+            if "</think>" in text:
+                text = text.split("</think>")[1]
+            out.append({"role": role or "", "content": text})
+        except Exception:
+            continue
+    return out
 
 
 def _extract_sql_from_response(content: str) -> str:
@@ -319,14 +429,11 @@ def _build_feedback_text(
     return "\n".join(feedback_parts)
 
 
+# ============================================================================
+# Evaluation Test
+# ============================================================================
 @evaluation_test(
-    input_dataset=[
-        str(
-            Path(__file__).resolve().parents[1]
-            / "datasets"
-            / "final_gepa_rft_sql_train_data.jsonl"
-        )
-    ],
+    input_rows=_load_eval_rows(max_rows=None),  # Only loads TRAIN data (183 rows), test is held out
     completion_params=[
         {
             "temperature": 0.0,
@@ -338,14 +445,14 @@ def _build_feedback_text(
     passed_threshold=0.0,
     num_runs=1,
     mode="pointwise",
-    max_dataset_rows=25,
+    max_dataset_rows=None,  # Use full dataset for GEPA
 )
-def test_sql_rft_local(row: EvaluationRow) -> EvaluationRow:
+def test_sql_gepa(row: EvaluationRow) -> EvaluationRow:
     """
-    Local evaluation test: uses SingleTurnRolloutProcessor to have the model produce SQL,
-    then evaluates via MCP server against ground_truth.
-    Run with: pytest evaluator/sql_rft_evaluator.py -vs
-    Environment: export MCP_SERVER_URL=http://127.0.0.1:8080
+    SQL evaluation test for GEPA optimization.
+    
+    This evaluates the model's SQL generation against ground truth results
+    by executing the SQL via MCP server.
     """
     if not row.messages or row.ground_truth is None:
         row.evaluation_result = EvaluateResult(
@@ -354,6 +461,10 @@ def test_sql_rft_local(row: EvaluationRow) -> EvaluationRow:
             is_score_valid=False
         )
         return row
+
+    # Ensure MCP server URL is set
+    if not os.getenv("MCP_SERVER_URL"):
+        os.environ["MCP_SERVER_URL"] = "http://127.0.0.1:8080"
 
     # Get the assistant's response (last message should be assistant)
     assistant_msgs = [m for m in row.messages if m.role == "assistant"]
@@ -438,3 +549,42 @@ def test_sql_rft_local(row: EvaluationRow) -> EvaluationRow:
         },
     )
     return row
+
+
+# ============================================================================
+# GEPA Training Entry Point
+# ============================================================================
+if __name__ == "__main__":
+    print("Text-to-SQL GEPA Prompt Optimization")
+    print("=" * 40)
+    
+    # MCP server will be auto-started by GEPATrainer
+    mcp_url = os.getenv("MCP_SERVER_URL", "http://127.0.0.1:8080")
+    print(f"MCP Server: {mcp_url}")
+    
+    # Initialize trainer (train data split into 70% train, 30% val)
+    trainer = GEPATrainer(
+        test_sql_gepa,
+        train_ratio=0.7,
+        val_ratio=0.3,
+        input_field="problem",
+        output_field="answer",
+        module_type="chain_of_thought",
+    )
+    
+    # Use Fireworks model for reflection
+    reflection_lm = build_reflection_lm("fireworks_ai/accounts/fireworks/models/deepseek-v3p1-terminus")
+
+    print("Starting GEPA training...")
+    optimized_program = trainer.train(
+        num_threads=4,
+        track_stats=True,
+        reflection_minibatch_size=50,
+        reflection_lm=reflection_lm,
+        auto=None,
+        max_metric_calls=3000,
+    )
+    
+    print("\n=== Optimized Prompt ===")
+    print(trainer.get_optimized_system_prompt(optimized_program))
+

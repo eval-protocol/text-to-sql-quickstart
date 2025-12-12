@@ -10,7 +10,11 @@ from fireworks import LLM
 
 
 def parse_duckdb_ascii(table_string: str) -> List[Dict[str, Any]]:
-    lines = [ln for ln in table_string.strip().split("\n") if ln.strip() and not ln.startswith("+")]
+    lines = [
+        ln
+        for ln in table_string.strip().split("\n")
+        if ln.strip() and not ln.startswith("+")
+    ]
     if len(lines) < 2:
         return []
     headers = [h.strip() for h in lines[0].split("|")[1:-1]]
@@ -45,20 +49,38 @@ def are_equal(a: List[Dict[str, Any]], b: List[Dict[str, Any]]) -> bool:
     return av == bv
 
 
-def run_eval(llm: LLM, mcp_url: str, system_prompt: str, user_prompt: str, ground_truth: List[Dict[str, Any]]) -> int:
+def run_eval(
+    llm: LLM,
+    mcp_url: str,
+    system_prompt: str,
+    user_prompt: str,
+    ground_truth: List[Dict[str, Any]],
+) -> int:
     resp = llm.chat.completions.create(
-        messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
         temperature=0.0,
     )
     sql = (resp.choices[0].message.content or "").strip()
-    headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+    }
     payload = {
         "id": "eval",
         "jsonrpc": "2.0",
         "method": "tools/call",
-        "params": {"session": {"id": "bench"}, "name": "query", "arguments": {"query": sql}},
+        "params": {
+            "session": {"id": "bench"},
+            "name": "query",
+            "arguments": {"query": sql},
+        },
     }
-    with requests.post(f"{mcp_url}/mcp/", headers=headers, json=payload, timeout=30, stream=True) as r:
+    with requests.post(
+        f"{mcp_url}/mcp/", headers=headers, json=payload, timeout=30, stream=True
+    ) as r:
         r.raise_for_status()
         ev = None
         for line in r.iter_lines():
@@ -90,11 +112,16 @@ def main() -> None:
         print("FIREWORKS_API_KEY not set")
         return
     BASE = os.getenv("BASE_MODEL_ID", "accounts/fireworks/models/qwen2p5-7b")
-    LARGE = os.getenv("LARGE_BASE_MODEL_ID", "accounts/fireworks/models/qwen3-coder-480b-a35b-instruct")
-    TUNED = os.getenv("FINE_TUNED_MODEL_ID", "accounts/<your-account-id>/models/<your-model-id>")
-    llm_base = LLM(model=BASE, deployment_type="auto", api_key=api_key)
-    llm_large = LLM(model=LARGE, deployment_type="auto", api_key=api_key)
-    llm_tuned = LLM(model=TUNED, deployment_type="auto", api_key=api_key)
+    LARGE = os.getenv(
+        "LARGE_BASE_MODEL_ID",
+        "accounts/fireworks/models/qwen3-coder-480b-a35b-instruct",
+    )
+    TUNED = os.getenv(
+        "FINE_TUNED_MODEL_ID", "accounts/<your-account-id>/models/<your-model-id>"
+    )
+    llm_base = LLM(model=BASE, deployment_type="serverless", api_key=api_key)
+    llm_large = LLM(model=LARGE, deployment_type="serverless", api_key=api_key)
+    llm_tuned = LLM(model=TUNED, deployment_type="serverless", api_key=api_key)
 
     # Load dataset
     rows: List[Dict[str, Any]] = []

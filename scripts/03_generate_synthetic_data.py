@@ -1,7 +1,6 @@
 import os
 import time
 import json
-import math
 import uuid
 import decimal
 import datetime
@@ -46,6 +45,14 @@ def main() -> None:
     data_dir = root / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
     prod_db = str(data_dir / "prod_openflights.db")
+    synth_db_path = data_dir / "synthetic_openflights.db"
+
+    # Check if synthetic DB already exists (skip regeneration)
+    FORCE_REGEN = os.environ.get("FORCE_REGEN", "").lower() in ("1", "true", "yes")
+    if synth_db_path.exists() and not FORCE_REGEN:
+        print(f"✓ Synthetic DB already exists at {synth_db_path}")
+        print("  Set FORCE_REGEN=1 to regenerate")
+        return
 
     with duckdb.connect(prod_db, read_only=True) as con_ro:
         schema_df = con_ro.sql("DESCRIBE;").df()
@@ -64,7 +71,9 @@ def main() -> None:
         model_name = f"{table_name.capitalize()}Row"
         pydantic_models[table_name] = create_model(model_name, **fields)
 
-    dataset_fields: Dict[str, Any] = {t: (List[m], ...) for t, m in pydantic_models.items()}
+    dataset_fields: Dict[str, Any] = {
+        t: (List[m], ...) for t, m in pydantic_models.items()
+    }
     SyntheticDataset = create_model("SyntheticDataset", **dataset_fields)
 
     TARGET_ROW_COUNT = int(os.environ.get("TARGET_ROW_COUNT", "100"))
@@ -74,7 +83,11 @@ def main() -> None:
     api_key = os.getenv("FIREWORKS_API_KEY")
     if not api_key:
         raise RuntimeError("FIREWORKS_API_KEY is not set")
-    llm = LLM(model="accounts/fireworks/models/llama-v3p1-8b-instruct", deployment_type="serverless", api_key=api_key)
+    llm = LLM(
+        model="accounts/fireworks/models/deepseek-v3p1-terminus",
+        deployment_type="serverless",
+        api_key=api_key,
+    )
 
     all_synthetic: Dict[str, List[Dict[str, Any]]] = {t: [] for t in table_names}
     chunk_row_counts = {t: ROWS_PER_API_CALL for t in table_names}
@@ -88,7 +101,9 @@ Database schema (DuckDB DESCRIBE):
 """.strip()
 
     call_count = 0
-    while not all(len(rows) >= TOTAL_ROW_COUNTS[t] for t, rows in all_synthetic.items()):
+    while not all(
+        len(rows) >= TOTAL_ROW_COUNTS[t] for t, rows in all_synthetic.items()
+    ):
         call_count += 1
         existing_summary = ""
         if any(all_synthetic[t] for t in table_names):
@@ -114,7 +129,10 @@ Database schema (DuckDB DESCRIBE):
             messages=[{"role": "user", "content": final_prompt}],
             response_format={
                 "type": "json_schema",
-                "json_schema": {"name": "SyntheticDataset", "schema": SyntheticDataset.model_json_schema()},
+                "json_schema": {
+                    "name": "SyntheticDataset",
+                    "schema": SyntheticDataset.model_json_schema(),
+                },
             },
             temperature=0.7,
         )
