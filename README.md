@@ -1,74 +1,87 @@
-# Text-to-SQL with GEPA Prompt Optimization
+# Text-to-SQL with GEPA Prompt Optimization + RFT
 
-A quickstart example demonstrating GEPA prompt optimization on a text-to-SQL task using Eval Protocol.
+### GEPA Prompt Optimization (Text-to-SQL)
 
-## Quickstart
+This path fine-tunes the **system prompt** for text-to-SQL using GEPA (guided evaluation prompt optimization).
 
-### 1. Install dependencies
-
+#### GEPA Quickstart
+1) Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Set your API key
-
+2) Set your Fireworks API key:
 ```bash
 export FIREWORKS_API_KEY="your-key"
 ```
 
-### 3. Run GEPA training
-
-The training script automatically starts the MCP server (which executes SQL queries against the database).
-
+3) Run GEPA training (this will start the MCP server locally as needed):
 ```bash
 python evaluator/sql_gepa_training.py
 ```
 
-This will:
-- Load the pre-generated dataset from `datasets/`
-- Split into train/validation sets
-- Run GEPA to optimize the system prompt
-- Print the optimized prompt
-
-### 4. Evaluate results
-
-Compare the original vs GEPA-optimized prompt on the test set:
-
+4) Compare original vs GEPA-optimized prompts on the test set:
 ```bash
 python scripts/eval_baseline.py --prompt both
 ```
 
-## Project Structure
+---
 
-```
-text-to-sql-quickstart/
-├── data/
-│   └── synthetic_openflights.db    # DuckDB database with airlines/airports/routes
-├── datasets/
-│   ├── final_rft_sql_train_data.jsonl   # Training examples (183 rows)
-│   └── final_rft_sql_test_data.jsonl    # Held-out test set (60 rows)
-├── mcp_server/
-│   └── run_mcp_server.py           # HTTP server that executes SQL queries
-├── evaluator/
-│   └── sql_gepa_training.py        # GEPA training script
-└── scripts/
-    ├── eval_baseline.py            # Evaluate prompts on test set
-    └── 08_regenerate_balanced_data.py  # Data generation script
-```
+### RFT with Eval Protocol
 
-## Data Generation (Optional)
+This path uses **Reinforcement Fine-Tuning (RFT)** to train a model to generate correct SQL against the synthetic database, evaluated via MCP.
 
-The dataset is already included in this repo. If you want to regenerate it:
+#### Prerequisites
+- Python 3.11+ (recommend `uv` or `venv`)
+- `FIREWORKS_API_KEY` (Fireworks account)
+- Google Cloud SDK (for Cloud Run MCP deployment) if you want remote server
+- Optional: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` for benchmarking additional models
 
+#### RFT Quickstart
+1) Create a Python environment in this folder and install:
 ```bash
-python scripts/08_regenerate_balanced_data.py
+pip install -r requirements.txt
 ```
 
-This script:
-- Uses the existing `data/synthetic_openflights.db` database
-- Generates SQL query templates with consistent column naming
-- Creates natural language questions for each query using an LLM
-- Executes queries to get ground truth results
-- Splits data into train/test sets with stratified sampling by query type
+The below steps we've already done, you can just skip to step 5 and kick off an RFT job.
 
-The generated data is saved to `datasets/final_rft_sql_train_data.jsonl` and `datasets/final_rft_sql_test_data.jsonl`.
+2) Generate data (OpenFlights → prod → synthetic → queries → ground-truth → NL):
+```bash
+make all-data
+```
+You typically only need to run this once to produce `data/synthetic_openflights.db` and the JSONL datasets.
+We’ve already generated these artifacts, copied the DB into `mcp_server/data`, and deployed an MCP server using that database.
+You can reuse this setup and skip regeneration unless you explicitly want to create a new synthetic dataset and deploy your own MCP server.
+
+3) Build and deploy MCP server to Cloud Run (from the `mcp_server/` directory):
+```bash
+cd mcp_server
+gcloud run deploy mcp-sql-rft-server \
+  --source . \
+  --project YOUR_GCP_PROJECT_ID \
+  --region YOUR_GCP_REGION \
+  --allow-unauthenticated \
+  --port 8080
+```
+This uses `mcp_server/Dockerfile` (and `mcp_server/.gcloudignore`). Make sure `mcp_server/data/synthetic_openflights.db`
+exists before deploying (for example by copying it from `../data/synthetic_openflights.db`).
+Copy the Cloud Run service URL (without trailing `/mcp/`) and either:
+- export it as `MCP_SERVER_URL`, or
+- hard-code it into the evaluator if desired.
+
+4) Test evaluator locally:
+```bash
+ep local-test
+```
+
+Then select `test_sql_rft_local` in `sql_rft_evaluator.py`.
+
+5) Launch RFT:
+```bash
+ep create rft \
+  --base-model accounts/fireworks/models/qwen3-32b \
+  --chunk-size 10 \
+  --epochs 8
+```
+
+ Again, select `test_sql_rft_local` in `sql_rft_evaluator.py` as the evaluation function.
