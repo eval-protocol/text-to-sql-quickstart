@@ -35,7 +35,6 @@ This path uses **Reinforcement Fine-Tuning (RFT)** to train a model to generate 
 - Python 3.11+ (recommend `uv` or `venv`)
 - `FIREWORKS_API_KEY` (Fireworks account)
 - Google Cloud SDK (for Cloud Run MCP deployment) if you want remote server
-- Optional: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` for benchmarking additional models
 
 #### RFT Quickstart
 1) Create a Python environment in this folder and install:
@@ -43,7 +42,7 @@ This path uses **Reinforcement Fine-Tuning (RFT)** to train a model to generate 
 pip install -r requirements.txt
 ```
 
-The below steps we've already done, you can just skip to step 5 and kick off an RFT job.
+*We've already done the below steps, you can just skip to step 5 and kick off an RFT job.*
 
 2) Generate data (OpenFlights → prod → synthetic → queries → ground-truth → NL):
 ```bash
