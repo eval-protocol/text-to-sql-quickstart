@@ -1,12 +1,12 @@
 # Ignore everything by default
 *
 
-# Allow Dockerfile and server sources
+# Keep Dockerfile and files it copies
 !Dockerfile
-!requirements.txt
+!mcp_requirements.txt
 !run_mcp_server.py
 
-# Include only DB file we want
-!../data/
-../data/*
-!../data/synthetic_openflights.db
+# Keep the embedded DB
+!data/
+data/*
+!data/synthetic_openflights.db

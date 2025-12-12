@@ -1,0 +1,5 @@
+mcp
+mcp-server-motherduck
+duckdb
+uvicorn
+starlette

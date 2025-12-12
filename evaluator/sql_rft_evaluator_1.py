@@ -324,7 +324,7 @@ def _build_feedback_text(
         str(
             Path(__file__).resolve().parents[1]
             / "datasets"
-            / "final_gepa_rft_sql_train_data.jsonl"
+            / "final_rft_sql_train_no_assistant.jsonl"
         )
     ],
     completion_params=[
@@ -340,7 +340,7 @@ def _build_feedback_text(
     mode="pointwise",
     max_dataset_rows=25,
 )
-def test_sql_rft_local(row: EvaluationRow) -> EvaluationRow:
+def test_sql_rft_local_1(row: EvaluationRow) -> EvaluationRow:
     """
     Local evaluation test: uses SingleTurnRolloutProcessor to have the model produce SQL,
     then evaluates via MCP server against ground_truth.
