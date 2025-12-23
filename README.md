@@ -84,3 +84,5 @@ ep create rft \
 ```
 
  Again, select `test_sql_rft_local` in `sql_rft_evaluator.py` as the evaluation function.
+
+If you'd like to run an RL experiment on an unoptimized prompt (no GEPA), select `test_sql_rft_local_no_gepa` in `sql_rft_evaluator_no_gepa.py`!
